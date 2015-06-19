@@ -306,10 +306,10 @@ class Gemm_sf(theano.Op):
         gz, = outputs
         
         gzo = gz#(gz.reshape((gz.shape[0], om.shape[1], -1)) * om.dimshuffle(0,1,'x')).reshape(gz.shape)
-        #  xgrad = T.dot(gzo, b.T)
-        #  xgrad = (xgrad.reshape((am.shape[0], am.shape[1], -1)) * am.dimshuffle(0,1,'x')).reshape(xgrad.shape)
+        xgrad = T.dot(gzo, b.T)
+        xgrad = (xgrad.reshape((am.shape[0], am.shape[1], self.blocksize)) * am.dimshuffle(0,1,'x')).reshape(xgrad.shape)
         #xgrad = sparse_dot(gz, None, b.T, am, T.zeros_like(c), self.blocksize)
-        xgrad = Gemm_fs(self.blocksize)(gz, b.T, am, T.as_tensor_variable(0.))
+        #xgrad = Gemm_fs(self.blocksize)(gz, b.T, am, T.as_tensor_variable(0.))
 
         a_masked = (a.reshape((am.shape[0], am.shape[1], -1)) * am.dimshuffle(0,1,'x')).reshape(a.shape)
         ygrad = T.dot(a_masked.T, gzo)
@@ -389,8 +389,8 @@ class Gemm_sf(theano.Op):
               
               // maybe it would be wiser to use doubles for accs
               double accs[bs];
-              for(int i=0;i<bs;i++){accs[i] = C_data[(x*bs+i)*c_stride];}
-             
+              for(int i=0;i<bs;i++){accs[i] = C_data[(x*%(blocksize)s+i)*c_stride];}
+        
               for (int p=0;p<P/%(blocksize)s;p++){
                 if (amask[y*amask_strides[0]+p*amask_strides[1]] == 1){
                   for (int i=p*%(blocksize)s;i<p*%(blocksize)s+%(blocksize)s;i++){
@@ -433,7 +433,7 @@ if __name__ == "__main__":
     n,m,p = 64,1024,1024
 
     print (n,m,p),bs
-    print "All these numbers should be 0 or close to 0:"
+    print "All these numbers should be 0, or close to 0:"
 
     import numpy
     A = T.matrix('a')
@@ -451,6 +451,7 @@ if __name__ == "__main__":
     zsft= sparse_theano_sf(A,am,B,c,bs)
 
     f = theano.function([A,B,am,bm,c],[z,zt,zfs,zfst,zsf,zsft],allow_input_downcast=True,profile=0)
+    fsf = theano.function([A,B,am,c],[zsf,zsft],allow_input_downcast=True,profile=0)
 
     
 
@@ -463,7 +464,7 @@ if __name__ == "__main__":
     for i in range(10):
         z,zt,zfs,zfst,zsf,zsft = f(a,b,am,bm,c)
         if i == 0:
-            print abs(zfs-zfst).mean()
+            print abs(z-zt).mean(),abs(zsf-zsft).mean(),abs(zfs-zfst).mean()
         if abs(z-zt).mean() > 0.0001 or abs(zfs-zfst).mean() > 0.0001 or abs(zsf-zsft).mean() > 0.0001:
             print abs(z-zt).sum(), abs(z-zt).mean()
             print abs(zfs-zfst).sum(), abs(zfs-zfst).mean()
@@ -473,6 +474,24 @@ if __name__ == "__main__":
             raise Exception("Something seems off")
             
             
+    # unaligned sparsefull
+    M = m - bs/2
+
+    b = numpy.random.uniform(-10,10,(p,M))
+    c = numpy.random.uniform(-10,10,(M,))
+
+    zsf,zsft = fsf(a,b,am,c)
+    
+    print abs(zsf-zsft).mean()
+    if abs(zsf-zsft).mean() > 0.0001: 
+        print b.shape
+        print abs(zsf-zsft).sum(), abs(zsf-zsft).mean()
+        print zsf
+        print zsft
+        raise Exception("Something seems off")
+        
+
+    
 
 
     # Grads
@@ -531,4 +550,24 @@ if __name__ == "__main__":
         if abs(grads[i]-grads[i+3]).mean() > 0.0001:
             print i, abs(grads[i]-grads[i+3]).mean()
             raise Exception("Something seems off")
+
+    # misaligned sparsefull
+
+    bs = 32
+    n,m,p = 64,1000,1024
+    a = numpy.random.uniform(-1,1,(n,p))
+    b = numpy.random.uniform(-1,1,(p,m))
+    am = numpy.random.uniform(0,1,(n,p/bs)) < 0.105
+    c = numpy.random.uniform(-1,1,(m,))
+
+
+    grads = fsf(a,b,am,c)
+
+
+    for i in range(3):
+        print abs(grads[i]-grads[i+3]).mean()
+        if abs(grads[i]-grads[i+3]).mean() > 0.0001:
+            print i, abs(grads[i]-grads[i+3]).mean()
+            raise Exception("Something seems off")
+
     

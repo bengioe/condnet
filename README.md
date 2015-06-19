@@ -22,4 +22,4 @@ The CPU implementation is single-core (for now), but the intent is to have a pro
 
 ### Stability
 
-I'm still hunting down the bugs, as it seems that on the CPU (maybe for numerical precision reasons?) I don't exactly get the right results, at least for the gradients, because training with my Ops is slower, as if the gradient wasn't as precise. Or maybe my math is wrong.
+I'm still hunting down the bugs, as it seems that on the CPU (maybe for numerical precision reasons?) I don't *exactly* get the same results as with theano. It doesn't seem to really affect gradient descent, but e.g. for a same random seed you will get different results.

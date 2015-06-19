@@ -12,7 +12,6 @@ if 'cpu' in theano.config.device:
             if amask is not None and omask is not None:
                 return Gemm_ss(block_size)(a,amask,b,omask,c)
             elif amask is not None and omask is None:
-                print "sf",a.dtype,amask.dtype,b.dtype,c.dtype
                 return Gemm_sf(block_size)(a,amask,b,c)
             elif amask is None and omask is not None:
                 return Gemm_fs(block_size)(a,b,omask,c)
