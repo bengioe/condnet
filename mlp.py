@@ -1,5 +1,4 @@
-import theano
-import theano.tensor as T
+
 import numpy
 import cPickle as pickle
 import gzip
@@ -12,6 +11,10 @@ from sklearn.manifold import TSNE
 import matplotlib
 matplotlib.use('Agg')
 from matplotlib import pyplot
+
+import theano
+import theano.tensor as T
+theano.config.compute_test_value = 'off'
 
 
 from sparse_dot import sparse_dot
@@ -35,8 +38,8 @@ class SigmoidPolicyDropout:
     def __call__(self, input, input_mask, n_in, n_out, blocksize, rate, prew,n):
         self.n = n
         self.prew = prew
-        nblocks = n_out / blocksize
         self.n_in = n_in
+        nblocks = n_out / blocksize
 
         prior_values = numpy.ones((nblocks,), dtype=theano.config.floatX) * rate
         prior = theano.shared(value=prior_values, name='q', borrow=True)
@@ -54,39 +57,43 @@ class SigmoidPolicyDropout:
 
         #probs = T.nnet.sigmoid(T.dot(input, w) + b) * 0.99 + 0.01
         probs = T.nnet.sigmoid(sparse_dot(input, input_mask, w, None, b, blocksize)) * 0.99 + 0.01
-
+        
+        # necessary if using the log policy form:
         #probs = T.maximum(T.minimum(0.99,probs),0.0001)
         self.probs = probs
 
         rn = srng.uniform(size=(input.shape[0], nblocks), 
                                 low=0.0, high=1.0,dtype='float32') 
         if 'gpu' in theano.config.device:
-            mask = T.cast(rn < probs,'float32') #floatlt(rn, probs)
+            mask = T.cast(rn < probs,'float32') 
         else:
             mask = rn < probs
-        #mask = theano.printing.Print('mask')(mask)
 
         fmask = T.cast(mask, 'float32')
-        self.log_policy = T.sum(T.log((probs**fmask)*(1. - probs)**(1. - fmask)), axis=1)
+        # I'm not sure which of these forms is more numerically stable, once derived:
         self.log_policy = T.sum(T.log((probs*fmask) + (1. - probs)*(1. - fmask)), axis=1)
+        self.log_policy = T.sum(T.log((probs**fmask)*(1. - probs)**(1. - fmask)), axis=1)
+        
+        if 0:
+            # jacobian of the hidden repr wrt to the input
+            jacobian = (probs * (1 - probs)).dimshuffle(0,'x',1) * w.dimshuffle('x',0,1)
+            contractive_cost = T.sum(jacobian**2) / probs.shape[0]
 
-        # jacobian of the hidden repr wrt to the input
-        jacobian = (probs * (1 - probs)).dimshuffle(0,'x',1) * w.dimshuffle('x',0,1)
-        contractive_cost = T.sum(jacobian**2) / probs.shape[0]
         self.cost = T.mean((T.sum(probs,axis=1) - (nblocks*rate)) ** 2)
         # here we want both a single example to be sparse with a certain rate
         # but also a unit in a minibatch to be sparse with the same rate
         # so that it encourages more units being used
         self.cost += T.mean((T.mean(probs,axis=0) - rate) ** 2)
+
         return mask
 
     def baseline_cost(self, cost):
         cost = cost / self.baseline.shape[0]
         b = self.baseline
-        #b = theano.printing.Print('b')(b)
-        #cost = theano.printing.Print('c')(cost)
         q = (cost-b)**2
-        return 0.001 * T.mean(q) #T.var(cost - self.baseline)
+        return 0.001 * T.mean(q)
+        # this is also good?
+        return T.var(cost - self.baseline)
 
     def grad(self, costs, last_costs):
         print self.n,self.prew
@@ -103,18 +110,16 @@ class Model:
         self.weights = []
         self.policies = []
         self.masks = []
+        self.layer_outputs = []
         self.policy_class = sparsity_function().__class__.__name__
         print sparsity_function
 
-        # indexes of the last sparse operation
-        idx = None
-        self.layer_outputs = []
-        i=0
-        for n in n_hidden:
+        last_mask = None
+        for i,n in enumerate(n_hidden):
             mask = None
-            if i >= 0:
+            if i >= 0: # it can be useful to have the first hidden layer be "dense"
                 policy = sparsity_function()
-                mask = policy(input, idx, n_in, n, block_size, rate, self.weights+[],i)
+                mask = policy(input, last_mask, n_in, n, block_size, rate, self.weights+[],i)
                 self.masks.append(mask)
                 self.policies.append(policy)
 
@@ -122,43 +127,37 @@ class Model:
             b = shared((n,), 'b%d'%i, 0)       
             self.weights += [w,b]
 
-
-            if 0:
-                q = T.dot(input,w)+b
-                if i >= 1:
-                    q = q.reshape((input.shape[0], -1, block_size)) * mask.dimshuffle(0,1,'x')
-                    q = q.reshape((input.shape[0], w.shape[1]))
-            else:
-                q = sparse_dot(input, idx, w, mask, b, block_size)
-                idx = mask
+            q = sparse_dot(input, last_mask, w, mask, b, block_size)
             input = T.maximum(q, 0)
             self.layer_outputs.append(input)
+            last_mask = mask
             print "sparsity:", n / block_size * rate
-            i+=1
             n_in = n
-        theano.config.compute_test_value = 'off'
+
 
 
         w = shared((n_in, n_out), 'w')
         b = shared((n_out,), 'b', 0)
         self.weights += [w,b]
-        o = sparse_dot(input, idx, w, None, b, block_size)
-        #o = theano.printing.Print('o',["__str__","shape"])(o)
+        o = sparse_dot(input, last_mask, w, None, b, block_size)
         self.output = T.nnet.softmax(o)
 
-
-        L1 = T.sum([T.sum(abs(i)) for i in 
-                    self.weights + [j for i in self.policies for j in i.weights]])
-        L2 = T.sum([T.sum(i**2) for i in 
-                    self.weights + [j for i in self.policies for j in i.weights]])
         costs = T.sum((target - self.output)**2,axis=1)
-        self.cost = T.sum(costs)# + 0.001*L2
+        self.cost = T.sum(costs)
+
+
+        if 0:
+            # 
+            L1 = T.sum([T.sum(abs(i)) for i in 
+                        self.weights + [j for i in self.policies for j in i.weights]])
+            L2 = T.sum([T.sum(i**2) for i in 
+                        self.weights + [j for i in self.policies for j in i.weights]])
+            
 
         # nnet grad
         self.grads = T.grad(self.cost, self.weights)
         nn_grads = self.grads
         nn_weights = self.weights
-        #nn_grads[0] = theano.printing.Print('grad0',["__str__","mean"])(nn_grads[0])
 
         # policy baseline grad
         baseline_cost = T.sum([i.baseline_cost(self.cost) for i in self.policies])
@@ -179,12 +178,13 @@ class Model:
         self.weights += policy_weights
         self.grads += policy_grads
       
+        # some statistics
         self.nactivations = T.cast(sum([T.sum(i) for i in self.masks]),'float32')
         self.sparsity = self.nactivations / T.sum([T.prod(i.shape) for i in self.masks])
         self.recruit_rate = T.sum([T.sum(T.sum(i, axis=0) > 0) for i in self.masks])
 
         lr = T.scalar()
-        def merge_up(l):
+        def merge_up(l): # add gradients on the same var
             d = {}
             for k,v in l:
                 if k in d:
@@ -192,23 +192,12 @@ class Model:
                 else:
                     d[k] = v
             return d.items()
+
         self.updates = [(i, i - lr * g) for i,g in merge_up(zip(self.weights, self.grads))]
         self.train = theano.function([self.input, target, last_costs, lr],
                                      [self.cost, costs, self.sparsity, self.nactivations, self.recruit_rate, self.policy_cost, baseline_cost],
                                      updates=self.updates)
 
-
-        if 0:
-            self.updates_pol = [(i, i - lr * g) for i,g in merge_up(zip(baseline_weights+policy_weights,
-                                                                    baseline_grads+policy_grads))]
-            self.updates_nn = [(i, i - lr * g) for i,g in merge_up(zip(nn_weights, nn_grads))]
-            self.train_pol = theano.function([self.input, target, lr],
-                                             [self.sparsity, self.nactivations, self.recruit_rate, self.policy_cost],
-                                             updates=self.updates_pol)
-            self.train_nn = theano.function([self.input, target, lr],
-                                            [self.cost, self.sparsity, self.nactivations, self.recruit_rate],
-                                            updates=self.updates_nn)
-            
         self.predict = theano.function([self.input],T.argmax(self.output, axis=1),profile=False)
 
         self.get_probs = theano.function([self.input], 
@@ -239,19 +228,19 @@ def main(policy=SigmoidPolicyDropout,
     y.tag.test_value = numpy.float32(numpy.random.uniform(0,1,(2,10)))
     costs = T.vector('last costs')
 
-    if 0:
+    if 0: # distorted mnist
         np = numpy
         all_X = np.float32(np.load('train_inputs.npy') / 255.)
         all_Y = np.load('train_outputs.npy').reshape((all_X.shape[0],1))
 
         train_set = [all_X[:40000], all_Y[:40000,0]]
         valid_set = [all_X[40000:], all_Y[40000:,0]]
-    elif 0:
+    elif 0: #cifar10
         trainX, trainY, testX, testY = pickle.load(file('/data/cifar/cifar_10_shuffled.pkl','r'))
         train_set = [numpy.float32(trainX/255.), trainY]
         valid_set = [numpy.float32(testX/255.), testY]
         print trainX.shape, testX.shape
-    else:
+    else: # mnist
         f = gzip.open("mnist.pkl.gz", 'rb')
         train_set, valid_set, test_set = pickle.load(f)
         f.close()
@@ -282,16 +271,15 @@ def main(policy=SigmoidPolicyDropout,
         policy_cost = 0
         sparsity_total = 0
         baseline_total = 0
+        # training epoch
         for m in range(nminibatches):
             x = train_set[0][m*batch_size:(m+1)*batch_size]
-            #x += numpy.random.uniform(0,0.001,x.shape)
+            if 0: x += numpy.random.uniform(0,0.001,x.shape)
             _y = train_set[1][m*batch_size:(m+1)*batch_size]
             y = numpy.zeros((_y.shape[0],10),'float32')
             y[numpy.arange(_y.shape[0]),_y] = 1
             c = train_costs[m*batch_size:(m+1)*batch_size]
             cost,costs,sparsity,nactivations,recruit_rate,policy_cost,baseline_cost = model.train(x,y,c,lr)
-            #raw_input("press enter")
-            #print sparsity, policy_cost
             train_costs[m*batch_size:(m+1)*batch_size] = costs
             sparsity_total += sparsity
             train_cost += cost
@@ -302,6 +290,7 @@ def main(policy=SigmoidPolicyDropout,
         baseline_total /= nminibatches
         t1 = time.time()
         total_training_time += t1-t0
+        # validation
         cost = 0
         ps = []
         for m in range(valid_set[0].shape[0] / batch_size):
@@ -314,7 +303,7 @@ def main(policy=SigmoidPolicyDropout,
                 ps.append(p)
 
         
-    
+        # policy embeddings
         valid_error = 1.*cost / valid_set[0].shape[0]
         t2 = time.time()
         if epoch % 10 == 0:
@@ -324,14 +313,14 @@ def main(policy=SigmoidPolicyDropout,
                 ps = tsne.fit_transform(ps)
                 Y = valid_set[1][:ps.shape[0]]
                 pyplot.clf()
-                for i,c,s in zip(range(10),list('bgrcmyk')+[(.4,.3,.9),(.9,.4,.3),(.3,.9,.4)],'ov'*5):#'.ov^<>1234sp*'):
+                for i,c,s in zip(range(10),list('bgrcmyk')+[(.4,.3,.9),(.9,.4,.3),(.3,.9,.4)],'ov'*5):
                     sub = ps[Y == i]
                     pyplot.plot(sub[:,0], sub[:,1], s,color=c,ms=2,mec=c)
                 pyplot.show(block=False)
-                pyplot.savefig('probs_embed.png')
+                pyplot.savefig('policy_embed.png')
             except Exception,e:
                 print "Couldn't make TSNE",e
-        pyplot.draw()
+            pyplot.draw()
 
         t3 = time.time()
 
@@ -387,10 +376,10 @@ if __name__ == "__main__":
     
     import sys
     if len(sys.argv) > 1:
-        print "Got args",([SigmoidPolicyDropout, HintonDropout][int(sys.argv[1])],
-                          int(sys.argv[2]),
-                          float(sys.argv[3]),
-                          [int(sys.argv[4])]*2)
+        print ([SigmoidPolicyDropout, HintonDropout][int(sys.argv[1])],
+               int(sys.argv[2]),
+               float(sys.argv[3]),
+               [int(sys.argv[4])]*2)
         main([SigmoidPolicyDropout, HintonDropout][int(sys.argv[1])],
              int(sys.argv[2]),
              float(sys.argv[3]),
