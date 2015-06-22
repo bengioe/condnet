@@ -324,11 +324,6 @@ __global__ void sparsedot_ss(float* A, float* B, int* indexes, int* aindexes, in
         cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
         O_data = CudaNdarray_DEV_DATA(%(z)s);
 
-  cudaEvent_t start, stop;
-  float elapsedTime;
-
-  cudaEventCreate(&start);
-  cudaEventRecord(start,0);
         if (grid_size > 0){
         sparsedot_ss<<<grid_size, blocks>>>(A_data, B_data, I_data, AI_data, AID_data, O_data,
                                          dims[0], dims[1], dims[2], bias_data,
@@ -336,13 +331,6 @@ __global__ void sparsedot_ss(float* A, float* B, int* indexes, int* aindexes, in
                                          A_strides[0], A_strides[1], B_strides[0], B_strides[1]); 
         }
         CNDA_THREAD_SYNC;
-
- cudaEventCreate(&stop);
- cudaEventRecord(stop,0);
- cudaEventSynchronize(stop);
-
- cudaEventElapsedTime(&elapsedTime, start,stop);
-        //printf("Elapsed time : %%f ms %%d %%d %%d %%d (%%d)\\n" ,elapsedTime, grid_size, blocks.x, blocks.y, blocks.z, BLOCK_SIZE);
 
         
         sts = cudaGetLastError();
@@ -532,11 +520,6 @@ __global__ void sparsedot_fs(float* X, float* W, float* indexes, float* z, int n
         cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
         O_data = CudaNdarray_DEV_DATA(%(z)s);
 
-  cudaEvent_t start, stop;
-  float elapsedTime;
-
-  cudaEventCreate(&start);
-  cudaEventRecord(start,0);
         if (grid_size > 0){
         sparsedot_fs<<<grid_size, blocks>>>(X_data, W_data, I_data, O_data,
                                          dims[0], dims[1], dims[2], index_dims[1],
@@ -544,12 +527,6 @@ __global__ void sparsedot_fs(float* X, float* W, float* indexes, float* z, int n
         }
         CNDA_THREAD_SYNC;
 
- cudaEventCreate(&stop);
- cudaEventRecord(stop,0);
- cudaEventSynchronize(stop);
-
- cudaEventElapsedTime(&elapsedTime, start,stop);
-        //printf("Elapsed time : %%f ms %%d %%d %%d %%d (%%d)\\n" ,elapsedTime, grid_size, blocks.x, blocks.y, blocks.z, BLOCK_SIZE);
 
         
         sts = cudaGetLastError();
@@ -750,24 +727,12 @@ __global__ void sparsedot_sf(float* A, float* B, int* aindexes, int* aindexes_da
 
         O_data = CudaNdarray_DEV_DATA(%(z)s);
 
-  cudaEvent_t start, stop;
-  float elapsedTime;
-
-  cudaEventCreate(&start);
-  cudaEventRecord(start,0);
         if (grid_size.x * grid_size.y > 0){
         sparsedot_sf<<<grid_size, blocks>>>(A_data, B_data, AI_data, AID_data, O_data,
                                          dims[0], dims[1], dims[2], aindex_dims[1],
                                          A_strides[0], A_strides[1], B_strides[0], B_strides[1]); 
         }
         CNDA_THREAD_SYNC;
-
- cudaEventCreate(&stop);
- cudaEventRecord(stop,0);
- cudaEventSynchronize(stop);
-
- cudaEventElapsedTime(&elapsedTime, start,stop);
-        //printf("Elapsed time : %%f ms %%d %%d %%d %%d (%%d)\\n" ,elapsedTime, grid_size, blocks.x, blocks.y, blocks.z, BLOCK_SIZE);
 
         
         sts = cudaGetLastError();
