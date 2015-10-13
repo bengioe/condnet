@@ -7,7 +7,8 @@ import time
 from theano_tools import shared, HiddenLayer, StackModel, RandomStreams, momentum,\
     GenericClassificationDataset, tools, gradient_descent, reinforce_no_baseline, \
     InputSparseHiddenLayer, reinforce_no_baseline_momentum
-from sparse_dot import sparse_dot, sparse_dot_theano
+
+from theano_tools.sparse_dot import sparse_dot, sparse_dot_theano
 
 import matplotlib
 matplotlib.use('Agg')

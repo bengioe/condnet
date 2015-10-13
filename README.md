@@ -1,6 +1,11 @@
 # condnet
 
-A policy driven sparse net, using explicit sparse dot products to go faster.  See [our RLDM submission](http://pierrelucbacon.com/bacon-2015-condnet.pdf).
+A policy driven sparse net, using explicit sparse dot products to go faster.  See [our RLDM 2015 submission](http://pierrelucbacon.com/bacon-2015-condnet.pdf), as well as our NIPS 2015 Deep RL workshop submission (put link here).
+
+
+## Policy block-dropout / Conditional neural net
+
+Please read the paper for more details. The general idea is to drop blocks of units instead of single units (independently per example). In addition, we do not drop the blocks randomly but learn an input-dependent policy that outputs the particiaption probability of each block, for each layer.
 
 ## Sparse dot product
 

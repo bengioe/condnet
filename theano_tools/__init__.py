@@ -6,7 +6,7 @@ import cPickle as pickle
 import theano
 import theano.tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
-from ..condnet.sparse_dot import*
+from .sparse_dot import*
 
 
 class SharedGenerator:
