@@ -203,6 +203,12 @@ class Gemm_fs(theano.Op):
     def __str__(self):
         return "SparseGemm_fs"
 
+    def c_support_code(self):
+        return """
+
+#include <ctime>
+        """
+
 
     def c_code(self, node, name, inp, out, sub):
         a,b,omask,c = inp
@@ -210,7 +216,7 @@ class Gemm_fs(theano.Op):
         fail = sub['fail']
         blocksize = self.blocksize
         s = """
-        
+        //clock_t t0 = clock();
         float* A_data = (float*)PyArray_DATA(%(a)s);
         float* B_data = (float*)PyArray_DATA(%(b)s);
         int8_t* omask = (int8_t*)PyArray_DATA(%(omask)s);
@@ -230,7 +236,6 @@ class Gemm_fs(theano.Op):
            c_stride = _c_strides[0] / sizeof(float);
         }
         //printf("strides %%d %%d, %%d %%d\\n", A_strides[0], A_strides[1], B_strides[0], B_strides[1]);
-
         npy_intp odims[] = {PyArray_DIMS(%(a)s)[0], PyArray_DIMS(%(b)s)[1]};
         npy_intp cross_dim = PyArray_DIMS(%(a)s)[1];
 
@@ -243,14 +248,14 @@ class Gemm_fs(theano.Op):
         int N = odims[0], M = odims[1], P = cross_dim;
         int bs = %(blocksize)s;
         
-        //printf("%%d %%d %%d\\n",N,M,P);
-
+        //printf("%%d %%d %%d %%d\\n",N,M,P,bs);
+        //int asd = 0;
         for (int y=0;y<N;y++){
           for (int x=0;x<M/bs;x++){
             if (omask[y*omask_strides[0] + x*omask_strides[1]] == 1){
               // compute the vector dot product of "A[y,:].B[:,x]" block
               // maybe it would be wiser to use doubles for accs
-              double accs[bs];
+              float accs[bs];
               for(int i=0;i<bs;i++){accs[i] = C_data[(x*bs+i)*c_stride];}
               //memcpy(accs, C_data + x * bs, bs * sizeof(float));
 
@@ -262,6 +267,7 @@ class Gemm_fs(theano.Op):
                     for (int k=0;k<bs;k++){
                       accs[k] += a_val * (*b_val);
                       b_val += strd;
+        //asd++;
                 }}
               }
               
@@ -270,9 +276,8 @@ class Gemm_fs(theano.Op):
             }
           }
         }
-
-        
-
+        //clock_t t1 = clock();
+        //printf("%%d %%f\\n",asd,double(t1-t0)/CLOCKS_PER_SEC);
 
         """ % locals()
         return s
