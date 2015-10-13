@@ -28,6 +28,7 @@ elif 'gpu' in theano.config.device:
     from gpu_gemm import _GPUSparseDot_SparseBySparse
 
     def sparse_dot(a, amask, b, omask, c, block_size):
+        
         if sparse_trick:
             if amask is not None and omask is not None:
                 return _GPUSparseDot_SparseBySparse(block_size)(a,amask,b,omask,c)

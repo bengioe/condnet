@@ -167,6 +167,11 @@ class _GPUSparseDot_SparseBySparse(theano.sandbox.cuda.GpuOp):
         self.block_size = block_size
 
     def make_node(self, A, Amask, B, Omask, c):
+        if Amask.dtype!='float32':
+            Amask = T.cast(Amask, 'float32')
+        if Omask.dtype!='float32':
+            Omask = T.cast(Omask, 'float32')
+
         aindexes,aindexes_data = DualMatrixNonzero()(Amask)
         indexes,indexes_data = DualMatrixNonzero()(Omask)            
             
