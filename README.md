@@ -1,6 +1,6 @@
 # condnet
 
-A policy driven sparse net, using explicit sparse dot products to go faster.  See [our RLDM 2015 submission](http://pierrelucbacon.com/bacon-2015-condnet.pdf), as well as our [NIPS 2015 Deep RL workshop submission]().
+A policy driven sparse net, using explicit sparse dot products to go faster.  See [our RLDM 2015 submission](http://pierrelucbacon.com/bacon-2015-condnet.pdf), as well as our [NIPS 2015 Deep RL workshop and ICLR 2016 submission](http://arxiv.org/abs/1511.06297).
 
 
 ## Policy block-dropout / Conditional neural net
