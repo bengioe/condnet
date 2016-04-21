@@ -19,16 +19,18 @@ srng = RandomStreams(142857)
 from subprocess import Popen, PIPE
 
 class PolicyDropoutLayer:
-    def __init__(self, n_in, n_out, block_size, activation, do_dropout=False):
+    def __init__(self, n_in, n_out, block_size, activation, do_dropout=False,
+                 reinforce_params="reinforce",
+                 default_params="default"):
         self.block_size = block_size
         self.nblocks = n_out / block_size
         self.do_dropout = do_dropout
         assert n_out % block_size == 0
 
         self.h = HiddenLayer(n_in, n_out, activation)
-        shared.bind("reinforce")
+        shared.bind(reinforce_params)
         self.d = HiddenLayer(n_in, self.nblocks, T.nnet.sigmoid)
-        shared.bind("default")
+        shared.bind(default_params)
 
     def __call__(self, x, xmask=None):
         probs = self.d(x) * 0.98 + 0.01
